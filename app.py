@@ -1,53 +1,48 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-import matplotlib as plt
+import matplotlib.pyplot as plt
 
-st.set_page_config(
-    page_title="Care Transition Analytics",
-    layout="wide"
-)
+st.set_page_config(page_title="Care Transition Analytics", layout="wide")
 
+# -------------------------------
+# Custom Styling
+# -------------------------------
 st.markdown("""
 <style>
 .main-title {
-    font-size: 38px;
+    font-size: 36px;
     font-weight: 800;
     color: #1f4e79;
 }
 .subtitle {
-    font-size: 18px;
+    font-size: 16px;
     color: #555;
 }
-.metric-card {
-    background: linear-gradient(135deg, #e3f2fd, #ffffff);
-    padding: 20px;
-    border-radius: 18px;
-    box-shadow: 0px 4px 15px rgba(0,0,0,0.08);
+.metric-box {
+    background: #f0f7ff;
+    padding: 18px;
+    border-radius: 12px;
     text-align: center;
+    box-shadow: 0px 2px 10px rgba(0,0,0,0.1);
 }
 .metric-value {
-    font-size: 28px;
-    font-weight: 800;
+    font-size: 26px;
+    font-weight: bold;
     color: #0d47a1;
 }
 .metric-label {
-    font-size: 15px;
-    color: #444;
-}
-.insight-box {
-    background-color: #f8fbff;
-    border-left: 6px solid #1f77b4;
-    padding: 18px;
-    border-radius: 12px;
+    font-size: 14px;
 }
 </style>
 """, unsafe_allow_html=True)
 
-st.markdown('<div class="main-title">Care Transition Efficiency & Placement Outcome Analytics</div>', unsafe_allow_html=True)
-st.markdown('<div class="subtitle">A Data Science dashboard to analyze CBP → HHS → Discharge pipeline efficiency</div>', unsafe_allow_html=True)
-st.write("")
+st.markdown('<div class="main-title">Care Transition Efficiency Dashboard</div>', unsafe_allow_html=True)
+st.markdown('<div class="subtitle">Analyze CBP → HHS → Discharge pipeline efficiency</div>', unsafe_allow_html=True)
 
+# -------------------------------
+# Load Data
+# -------------------------------
 @st.cache_data
 def load_data():
     df = pd.read_csv("cleaned_uac_pipeline_analytics.csv")
@@ -65,202 +60,96 @@ def load_data():
         df[col] = df[col].astype(str).str.replace(",", "", regex=False)
         df[col] = pd.to_numeric(df[col], errors="coerce")
 
-    df = df.dropna(how="all")
-    df = df.sort_values("Date").reset_index(drop=True)
+    df = df.dropna()
+    df = df.sort_values("Date")
 
     df["Transfer Efficiency"] = df["Children transferred out of CBP custody"] / df["Children in CBP custody"]
     df["Discharge Effectiveness"] = df["Children discharged from HHS Care"] / df["Children in HHS Care"]
-    df["Pipeline Throughput"] = df["Children discharged from HHS Care"] / df["Children apprehended and placed in CBP custody*"]
-
-    df["CBP Backlog"] = df["Children in CBP custody"] - df["Children transferred out of CBP custody"]
-    df["HHS Backlog"] = df["Children in HHS Care"] - df["Children discharged from HHS Care"]
     df["Net Pressure"] = df["Children apprehended and placed in CBP custody*"] - df["Children discharged from HHS Care"]
-
-    df.replace([np.inf, -np.inf], np.nan, inplace=True)
-
-    df["Month"] = df["Date"].dt.to_period("M").astype(str)
-    df["Day Name"] = df["Date"].dt.day_name()
 
     return df
 
 df = load_data()
 
-st.sidebar.header("Dashboard Filters")
+# -------------------------------
+# Sidebar Filter
+# -------------------------------
+st.sidebar.header("Filters")
 
-min_date = df["Date"].min().date()
-max_date = df["Date"].max().date()
+start_date = st.sidebar.date_input("Start Date", df["Date"].min())
+end_date = st.sidebar.date_input("End Date", df["Date"].max())
 
-date_range = st.sidebar.date_input(
-    "Select Date Range",
-    value=(min_date, max_date),
-    min_value=min_date,
-    max_value=max_date
-)
+filtered_df = df[(df["Date"] >= pd.to_datetime(start_date)) &
+                 (df["Date"] <= pd.to_datetime(end_date))]
 
-if len(date_range) == 2:
-    start_date, end_date = date_range
-    filtered_df = df[
-        (df["Date"].dt.date >= start_date) &
-        (df["Date"].dt.date <= end_date)
-    ].copy()
-else:
-    filtered_df = df.copy()
-
-st.sidebar.markdown("---")
-st.sidebar.info("Use filters to analyze different time periods.")
-
-# KPI CARDS
+# -------------------------------
+# KPI Section
+# -------------------------------
 st.subheader("Key Performance Indicators")
 
-k1, k2, k3, k4 = st.columns(4)
-
-with k1:
-    st.markdown(f"""
-    <div class="metric-card">
-        <div class="metric-value">{filtered_df['Transfer Efficiency'].mean():.3f}</div>
-        <div class="metric-label">Avg Transfer Efficiency</div>
-    </div>
-    """, unsafe_allow_html=True)
-
-with k2:
-    st.markdown(f"""
-    <div class="metric-card">
-        <div class="metric-value">{filtered_df['Discharge Effectiveness'].mean():.3f}</div>
-        <div class="metric-label">Avg Discharge Effectiveness</div>
-    </div>
-    """, unsafe_allow_html=True)
-
-with k3:
-    st.markdown(f"""
-    <div class="metric-card">
-        <div class="metric-value">{filtered_df['Pipeline Throughput'].mean():.3f}</div>
-        <div class="metric-label">Pipeline Throughput</div>
-    </div>
-    """, unsafe_allow_html=True)
-
-with k4:
-    st.markdown(f"""
-    <div class="metric-card">
-        <div class="metric-value">{filtered_df['Net Pressure'].mean():,.0f}</div>
-        <div class="metric-label">Avg Net Pressure</div>
-    </div>
-    """, unsafe_allow_html=True)
-
-st.write("")
-
-# CHART 1
-st.subheader("Pipeline Inflow vs Outflow")
-
-flow_df = filtered_df[[
-    "Date",
-    "Children apprehended and placed in CBP custody*",
-    "Children discharged from HHS Care"
-]].rename(columns={
-    "Children apprehended and placed in CBP custody*": "Apprehended / Inflow",
-    "Children discharged from HHS Care": "Discharged / Outflow"
-})
-
-flow_long = flow_df.melt(id_vars="Date", var_name="Metric", value_name="Count")
-
-fig1 = px.line(
-    flow_long,
-    x="Date",
-    y="Count",
-    color="Metric",
-    markers=True,
-    title="Daily Inflow vs Outflow Trend"
-)
-st.plotly_chart(fig1, use_container_width=True)
-
-# CHARTS SIDE BY SIDE
-c1, c2 = st.columns(2)
+c1, c2, c3 = st.columns(3)
 
 with c1:
-    st.subheader("Efficiency Trend")
-    eff_df = filtered_df[["Date", "Transfer Efficiency", "Discharge Effectiveness"]]
-    eff_long = eff_df.melt(id_vars="Date", var_name="Metric", value_name="Ratio")
-
-    fig2 = px.line(
-        eff_long,
-        x="Date",
-        y="Ratio",
-        color="Metric",
-        markers=True,
-        title="Transfer vs Discharge Efficiency"
-    )
-    st.plotly_chart(fig2, use_container_width=True)
+    st.markdown(f"""
+    <div class="metric-box">
+        <div class="metric-value">{filtered_df['Transfer Efficiency'].mean():.3f}</div>
+        <div class="metric-label">Transfer Efficiency</div>
+    </div>
+    """, unsafe_allow_html=True)
 
 with c2:
-    st.subheader("Backlog Trend")
-    backlog_df = filtered_df[["Date", "CBP Backlog", "HHS Backlog"]]
-    backlog_long = backlog_df.melt(id_vars="Date", var_name="Backlog Type", value_name="Count")
+    st.markdown(f"""
+    <div class="metric-box">
+        <div class="metric-value">{filtered_df['Discharge Effectiveness'].mean():.3f}</div>
+        <div class="metric-label">Discharge Effectiveness</div>
+    </div>
+    """, unsafe_allow_html=True)
 
-    fig3 = px.line(
-        backlog_long,
-        x="Date",
-        y="Count",
-        color="Backlog Type",
-        markers=True,
-        title="CBP and HHS Backlog Over Time"
-    )
-    st.plotly_chart(fig3, use_container_width=True)
+with c3:
+    st.markdown(f"""
+    <div class="metric-box">
+        <div class="metric-value">{filtered_df['Net Pressure'].mean():.0f}</div>
+        <div class="metric-label">Net Pressure</div>
+    </div>
+    """, unsafe_allow_html=True)
 
-# MONTHLY ANALYSIS
-st.subheader("Month-over-Month Analysis")
+# -------------------------------
+# Chart 1
+# -------------------------------
+st.subheader("Inflow vs Outflow")
 
-monthly_df = filtered_df.groupby("Month")[[
-    "Children apprehended and placed in CBP custody*",
-    "Children discharged from HHS Care",
-    "CBP Backlog",
-    "HHS Backlog",
-    "Net Pressure"
-]].mean().reset_index()
+fig, ax = plt.subplots(figsize=(10,5))
+ax.plot(filtered_df["Date"], filtered_df["Children apprehended and placed in CBP custody*"], label="Inflow", color="blue")
+ax.plot(filtered_df["Date"], filtered_df["Children discharged from HHS Care"], label="Outflow", color="green")
+ax.set_title("Inflow vs Outflow Trend")
+ax.legend()
+st.pyplot(fig)
 
-fig4 = px.bar(
-    monthly_df,
-    x="Month",
-    y=["CBP Backlog", "HHS Backlog"],
-    barmode="group",
-    title="Monthly Average Backlog Comparison"
-)
-st.plotly_chart(fig4, use_container_width=True)
+# -------------------------------
+# Chart 2
+# -------------------------------
+st.subheader("Efficiency Trends")
 
-st.dataframe(monthly_df, use_container_width=True)
+fig2, ax2 = plt.subplots(figsize=(10,5))
+ax2.plot(filtered_df["Date"], filtered_df["Transfer Efficiency"], label="Transfer Efficiency", color="orange")
+ax2.plot(filtered_df["Date"], filtered_df["Discharge Effectiveness"], label="Discharge Effectiveness", color="red")
+ax2.set_title("Efficiency Over Time")
+ax2.legend()
+st.pyplot(fig2)
 
-# INSIGHTS
-st.subheader("Key Insights")
+# -------------------------------
+# Insights
+# -------------------------------
+st.subheader("Insights")
 
-avg_inflow = filtered_df["Children apprehended and placed in CBP custody*"].mean()
-avg_outflow = filtered_df["Children discharged from HHS Care"].mean()
-avg_pressure = filtered_df["Net Pressure"].mean()
+st.info(f"""
+- Average Transfer Efficiency: {filtered_df['Transfer Efficiency'].mean():.3f}
+- Average Discharge Effectiveness: {filtered_df['Discharge Effectiveness'].mean():.3f}
+- Net Pressure indicates system load (positive means backlog risk)
+""")
 
-st.markdown(f"""
-<div class="insight-box">
-<b>Insight 1:</b> Average daily inflow is <b>{avg_inflow:.0f}</b>, while average daily outflow is <b>{avg_outflow:.0f}</b>.<br><br>
-<b>Insight 2:</b> Average net pressure is <b>{avg_pressure:.0f}</b>. Positive pressure means more children are entering than exiting.<br><br>
-<b>Insight 3:</b> Backlog charts help identify where delays are accumulating in the pipeline.<br><br>
-<b>Insight 4:</b> Transfer Efficiency and Discharge Effectiveness help measure operational performance over time.
-</div>
-""", unsafe_allow_html=True)
-
-# RAW DATA
-with st.expander("View Dataset"):
-    st.dataframe(filtered_df, use_container_width=True)
-
-# DOWNLOAD
-csv = filtered_df.to_csv(index=False).encode("utf-8")
-st.download_button(
-    "Download Filtered Data",
-    csv,
-    "filtered_care_transition_data.csv",
-    "text/csv"
-)
-
-   
-        
-
-    
-
-
-
-    
+# -------------------------------
+# Raw Data
+# -------------------------------
+with st.expander("View Data"):
+    st.dataframe(filtered_df)
